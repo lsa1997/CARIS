@@ -1,0 +1,13 @@
+requests
+filelock
+tqdm
+timm
+mmcv-full==1.4.8
+mmdet==2.23.0
+ftfy
+regex
+scipy
+scikit-image
+pycocotools
+opencv-python
+tokenizers
