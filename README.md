@@ -1,5 +1,5 @@
 # CARIS: Context-Aware Referring Image Segmentation
-This repository is for the ACM MM 2023 paper "CARIS: Context-Aware Referring Image Segmentation".
+This repository is for the ACM MM 2023 paper [CARIS: Context-Aware Referring Image Segmentation](https://dl.acm.org/doi/10.1145/3581783.3612117).
 
 <div align="center">
   <img src="figures/network.png" width="600" />
@@ -46,6 +46,17 @@ You can change `DATASET` and `SPLIT` to evaludate on different splits of each da
 Note that for RefCOCOg, there are two splits (umd and google). You should add `--splitBy umd` or `--splitBy google` to specify the split. 
 For the models trained on `refcocom`, you can directly evaluate them on the splits of `refcoco`/`refcoco+`/`refcocog(umd)`.
 
-
 ## References
 This repo is mainly built based on [LAVT](https://github.com/yz93/LAVT-RIS) and [mmdetection](https://github.com/open-mmlab/mmdetection). Thanks for their great work!
+
+## Citation
+If you find our code useful, please consider to cite with:
+```
+@inproceedings{liu2023caris,
+  title={CARIS: Context-Aware Referring Image Segmentation},
+  author={Liu, Sun-Ao and Zhang, Yiheng and Qiu, Zhaofan and Xie, Hongtao and Zhang, Yongdong and Yao, Ting},
+  booktitle={Proceedings of the 31st ACM International Conference on Multimedia},
+  year={2023}
+}
+```
+
