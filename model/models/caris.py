@@ -90,7 +90,7 @@ class CARIS(nn.Module):
         print('FROZEN params: ', names_frozen)
         return params_to_optimize
 
-    def forward(self, x, text, l_mask, resize_output=True, targets=None, return_probs=False):
+    def forward(self, x, text, l_mask, resize_output=True, targets=None, return_probs=False, return_attn=False):
         '''
             Input:
                 x       [BxCxHxW]
@@ -106,7 +106,10 @@ class CARIS(nn.Module):
         l_feats = outs[1]
         # VL pixel decoder
         l_feats = l_feats[:,:lang_len] # [B, N_l, 768]
-        x = self.pixel_decoder(vis_outs, l_feats, l_mask) # [B, 1, H, W]
+        if return_attn:
+            x, attns = self.pixel_decoder(vis_outs, l_feats, l_mask, return_attn=return_attn) # [B, 1, H, W]
+        else:
+            x = self.pixel_decoder(vis_outs, l_feats, l_mask) # [B, 1, H, W]
 
         if self.training:
             if self.criterion is not None:
@@ -115,6 +118,9 @@ class CARIS(nn.Module):
 
         if resize_output:
             x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=True)
+            if return_attn:
+                attns = [F.interpolate(attn, size=input_shape, mode='bilinear', align_corners=True) for attn in attns]
+                attns = [attn.reshape(x.shape[0], self.pixel_decoder.num_enc_layers, -1, input_shape[0], input_shape[1]) for attn in attns] # [B, N_layer, N_l, H, W]
         if x.shape[1] == 1:
             if not return_probs:
                 x = x.sigmoid()
@@ -122,4 +128,6 @@ class CARIS(nn.Module):
         else:
             if not return_probs:
                 x = torch.argmax(x, dim=1, keepdim=True)
+        if return_attn:
+            return x, attns
         return x
