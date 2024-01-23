@@ -64,7 +64,7 @@ class VLMSDeformAttnLayer(nn.Module):
         self.apply(_init_weights)
         self.vis_self_attn.init_weights() # init_weights defined in MultiScaleDeformableAttention
 
-    def forward(self, vis, lang, prompts=None, lang_mask=None, vis_pos=None, vis_padding_mask=None, **kwargs):
+    def forward(self, vis, lang, prompts=None, lang_mask=None, vis_pos=None, vis_padding_mask=None, return_attn=False, **kwargs):
         '''
             - vis: :math:`(N, L, E)` where L is the sequence length, N is the batch size, E is
             the embedding dimension.
@@ -104,7 +104,10 @@ class VLMSDeformAttnLayer(nn.Module):
         prompted_lang = self.l_norm3(prompted_lang)
 
         # L2V corss attn
-        _vis = self.l2v_cross_attn(q=PosEncoding(vis, vis_pos), k=prompted_lang, v=prompted_lang, attention_mask=lang_mask)[0]
+        if return_attn:
+            _vis, l2v_attn = self.l2v_cross_attn(q=PosEncoding(vis, vis_pos), k=prompted_lang, v=prompted_lang, attention_mask=lang_mask)
+        else:
+            _vis = self.l2v_cross_attn(q=PosEncoding(vis, vis_pos), k=prompted_lang, v=prompted_lang, attention_mask=lang_mask)[0]
         if self.with_gamma:
             _vis = _vis * self.gamma_l2v
         vis = vis + self.v_drop2(_vis)
@@ -126,6 +129,8 @@ class VLMSDeformAttnLayer(nn.Module):
         else:
             lang = prompted_lang
             prompts = None
+        if return_attn:
+            return vis, lang, prompts, l2v_attn
         return vis, lang, prompts
     
 class VLMSDeformAttnPixelDecoder(BaseModule):
@@ -264,7 +269,7 @@ class VLMSDeformAttnPixelDecoder(BaseModule):
         self.mask_feature.apply(caffe2_xavier_init)
         self.lang_embed.apply(caffe2_xavier_init)
 
-    def forward(self, feats, lang, lang_mask):
+    def forward(self, feats, lang, lang_mask, return_attn=False):
         """
         Args:
             feats (list[Tensor]): Feature maps of each level. Each has
@@ -344,18 +349,34 @@ class VLMSDeformAttnPixelDecoder(BaseModule):
         # shape (batch_size, num_total_query, c)
         memory = encoder_inputs
         lang = self.lang_in_norm(self.lang_in_linear(lang)) # [B, N_l, C]
+        attns = []
         for i in range(self.num_enc_layers):
-            memory, lang, prompts = self.encoder[i](
-                vis=memory,
-                lang=lang,
-                lang_mask=extend_l_mask,
-                prompts=prompts,
-                vis_pos=level_positional_encodings,
-                vis_padding_mask=padding_masks,
-                spatial_shapes=spatial_shapes,
-                reference_points=reference_points,
-                level_start_index=level_start_index,
-                valid_radios=valid_radios)
+            if return_attn:
+                memory, lang, prompts, l2v_attn = self.encoder[i](
+                    vis=memory,
+                    lang=lang,
+                    lang_mask=extend_l_mask,
+                    prompts=prompts,
+                    vis_pos=level_positional_encodings,
+                    vis_padding_mask=padding_masks,
+                    return_attn=return_attn,
+                    spatial_shapes=spatial_shapes,
+                    reference_points=reference_points,
+                    level_start_index=level_start_index,
+                    valid_radios=valid_radios)
+                attns.append(l2v_attn)
+            else:
+                memory, lang, prompts = self.encoder[i](
+                    vis=memory,
+                    lang=lang,
+                    lang_mask=extend_l_mask,
+                    prompts=prompts,
+                    vis_pos=level_positional_encodings,
+                    vis_padding_mask=padding_masks,
+                    spatial_shapes=spatial_shapes,
+                    reference_points=reference_points,
+                    level_start_index=level_start_index,
+                    valid_radios=valid_radios)
         # (batch_size, num_total_query, c) -> (batch_size, c, num_total_query)
         memory = memory.transpose(1, 2)
 
@@ -385,4 +406,14 @@ class VLMSDeformAttnPixelDecoder(BaseModule):
         lang_cls = torch.cat([prompts_g, lang_g], dim=1) # [B, 2, C]
         mask_pred = torch.einsum('bqc,bchw->bqhw', lang_cls, mask_feature) # [B, 2, H, W]
 
+        if return_attn:
+            attns = torch.cat(attns, dim=0)
+            attns = attns.transpose(-2, -1) # [B*num_layers, num_heads, n_lang, n_vis]
+            attns = torch.mean(attns, dim=1) # [B*num_layers, n_lang, n_vis]
+            attns = torch.split(attns, num_query_per_level, dim=-1)
+            attns = [
+                x.reshape(batch_size*self.num_enc_layers, -1, spatial_shapes[i][0],
+                        spatial_shapes[i][1]) for i, x in enumerate(attns)
+            ]
+            return mask_pred, attns
         return mask_pred
